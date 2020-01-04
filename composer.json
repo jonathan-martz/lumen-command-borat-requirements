@@ -1,0 +1,22 @@
+{
+  "name": "jonathan-martz/lumen-command-borat-requirements",
+  "description": "Php Lumen Command Borat Requirements",
+  "license": "MIT",
+  "require": {
+    "php": "^7.3|^7.4",
+    "laravel/lumen-framework": "^6.3"
+  },
+  "autoload": {
+    "classmap": [
+      "command/"
+    ]
+  },
+  "authors": [
+    {
+      "name": "Jonathan Martz",
+      "email": "composer@jmartz.de",
+      "homepage": "https://www.jmartz.de",
+      "role": "Developer"
+    }
+  ]
+}
