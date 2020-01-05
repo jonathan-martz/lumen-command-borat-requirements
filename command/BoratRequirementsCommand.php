@@ -6,7 +6,6 @@ use Exception;
 use Illuminate\Console\Command;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use function json_decode;
 
 /**
@@ -40,6 +39,10 @@ class BoratRequirementsCommand extends Command
     private $count = [
         'package-add' => 0
     ];
+    /**
+     * @var int
+     */
+    private $start = 0;
 
     /**
      * Create a new command instance.
@@ -105,6 +108,7 @@ class BoratRequirementsCommand extends Command
     /**
      * @param array $packages
      * @param string $type
+     * @throws Exception
      */
     public function addPackages(array $packages, string $type)
     {
@@ -114,11 +118,6 @@ class BoratRequirementsCommand extends Command
 
                 if($package->count() === 0) {
                     $tmp = explode('/', $key);
-
-                    if(empty($tmp[1])) {
-                        var_dump($key);
-                        die();
-                    }
 
                     $insert = [
                         'repo' => 'git@github.com:' . $tmp[0] . '/' . $tmp[1] . '.git',
@@ -147,13 +146,17 @@ class BoratRequirementsCommand extends Command
      */
     public function handle(Request $request)
     {
-        // @todo limit the execute time to 30sec
+        $this->start = time();
         $packages = DB::table('packages');
 
         foreach($packages->get() as $key => $package) {
             $composer = (array)$this->getComposerJson((array)$package);
 
-            if(!empty($composer['rls -laequire'])) {
+            if(time() - $this->start > 30) {
+                throw new Exception('Timeout limit reached (30)');
+            }
+
+            if(!empty($composer['require'])) {
                 $this->addPackages((array)$composer['require'], $package->type);
             }
 
@@ -193,6 +196,7 @@ class BoratRequirementsCommand extends Command
         $data = json_decode($output);
 
         // @todo prevent moved permanently error
+        // @todo fix rate limit
 
         if(empty($data->download_url)) {
             $this->errorDownloadUrl($package);
