@@ -11,12 +11,11 @@
       "command/"
     ]
   },
-  "authors": [
-    {
-      "name": "Jonathan Martz",
-      "email": "composer@jmartz.de",
-      "homepage": "https://www.jmartz.de",
-      "role": "Developer"
+  "extra": {
+    "laravel": {
+      "providers": [
+        "App\\Providers\\CommandBoratProvider"
+      ]
     }
-  ]
+  }
 }

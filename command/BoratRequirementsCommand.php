@@ -8,7 +8,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use function json_decode;
-use function json_encode;
 
 /**
  * Class BoratRequirementsCommand
@@ -135,7 +134,7 @@ class BoratRequirementsCommand extends Command
                         $this->count['package-add']++;
                     }
                     else {
-                        $this->sendMailInsertFailed($key);
+                        $this->errorPackageInsertFailed($key);
                     }
                 }
             }
@@ -154,7 +153,7 @@ class BoratRequirementsCommand extends Command
         foreach($packages->get() as $key => $package) {
             $composer = (array)$this->getComposerJson((array)$package);
 
-            if(!empty($composer['require'])) {
+            if(!empty($composer['rls -laequire'])) {
                 $this->addPackages((array)$composer['require'], $package->type);
             }
 
@@ -183,15 +182,9 @@ class BoratRequirementsCommand extends Command
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
 
         if(config('github.token') == null || config('github.username') == null) {
-            $filename = Storage::disk('local')->getDriver()->getAdapter()->getPathPrefix() . 'token-warning.json';
-
-            if(!file_exists($filename)) {
-                $this->sendMail('Borat Requirements Command', 'Github Token or Username is missing.');
-                file_put_contents($filename, time());
-            }
             throw new Exception('Github Token or Username is missing.');
         }
-        // @todo remove token!!!!
+
         curl_setopt($ch, CURLOPT_USERPWD, config('github.username') . ':' . config('github.token'));
         curl_setopt($ch, CURLOPT_USERAGENT, 'flagbit rockt');
         $output = curl_exec($ch);
@@ -202,8 +195,7 @@ class BoratRequirementsCommand extends Command
         // @todo prevent moved permanently error
 
         if(empty($data->download_url)) {
-            // @todo get real url from packagist api ?
-            $this->sendMailDownloadUrl((array)$data, $package);
+            $this->errorDownloadUrl($package);
             return false;
         }
 
@@ -213,36 +205,32 @@ class BoratRequirementsCommand extends Command
     /**
      * @param string $name
      */
-    public function sendMailInsertFailed(string $name)
+    public function errorPackageInsertFailed(string $name)
     {
-        $this->sendMail('Package failed to insert', 'Package name: ' . $name);
-    }
-
-    /**
-     * @param array $data
-     * @param array $package
-     */
-    public function sendMailDownloadUrl(array $data, array $package)
-    {
-        $filename = Storage::disk('local')->getDriver()->getAdapter()->getPathPrefix() . str_replace('/', '-', $package['fullname']) . '.json';
-
-        $this->error['download-url-missing']++;
-        if(!file_exists($filename)) {
-            $this->sendMail(
-                'Package download url missing',
-                'Package name: ' . json_encode($data) . ' ' . PHP_EOL . '' . json_encode($package)
-            );
-            file_put_contents($filename, time() . ' ' . $package['fullname']);
+        $this->error['package-insert-failed']++;
+        $check = DB::table('borat_error')->where('package', '=', $name)->where('reason', '=', 'package-insert-failed');
+        if($check !== 0) {
+            $insert = [
+                'package' => $name,
+                'reason' => 'package-insert-failed'
+            ];
+            DB::table('borat_error')->insert($insert);
         }
     }
 
     /**
-     * @param string $title
-     * @param $message
+     * @param array $package
      */
-    public function sendMail(string $title, string $message)
+    public function errorDownloadUrl(array $package)
     {
-        // @todo replace mails with own table and admin page and controller to check
-        mail(config('mail.from.address'), $title, $message);
+        $this->error['download-url-missing']++;
+        $check = DB::table('borat_error')->where('package', '=', $package['fullname'])->where('reason', '=', 'download-url-missing');
+        if($check !== 0) {
+            $insert = [
+                'package' => $package['fullname'],
+                'reason' => 'download-url-missing'
+            ];
+            DB::table('borat_error')->insert($insert);
+        }
     }
 }
