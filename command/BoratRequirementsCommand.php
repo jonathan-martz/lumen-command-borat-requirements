@@ -202,6 +202,7 @@ class BoratRequirementsCommand extends Command
         // @todo prevent moved permanently error
 
         if(empty($data->download_url)) {
+            // @todo get real url from packagist api ?
             $this->sendMailDownloadUrl((array)$data, $package);
             return false;
         }
