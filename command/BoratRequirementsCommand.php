@@ -34,14 +34,10 @@ class BoratRequirementsCommand extends Command
         'download-url-missing' => 0,
         'not-found' => 0,
         'package-insert-failed' => 0,
-        'moved-permanently' => 0
+        'moved-permanently' => 0,
+        'rate-limit' => 0
     ];
-    /**
-     * @var array
-     */
-    private $count = [
-        'package-add' => 0
-    ];
+
     /**
      * @var int
      */
@@ -132,10 +128,7 @@ class BoratRequirementsCommand extends Command
 
                     $result = DB::table('packages')->insert($insert);
 
-                    if($result) {
-                        $this->count['package-add']++;
-                    }
-                    else {
+                    if(!$result) {
                         $this->errorPackageInsertFailed($key);
                     }
                 }
@@ -153,25 +146,26 @@ class BoratRequirementsCommand extends Command
         $packages = DB::table('packages');
 
         foreach($packages->get() as $key => $package) {
-            $composer = (array)$this->getComposerJson((array)$package);
+            try {
+                $composer = (array)$this->getComposerJson((array)$package);
 
-            if(time() - $this->start > 50) {
-                throw new Exception('Timeout limit reached (50)');
+                if(time() - $this->start > 50) {
+                    throw new Exception('Timeout limit reached (50)');
+                }
+
+                if(!empty($composer['require'])) {
+                    $this->addPackages((array)$composer['require'], $package->type);
+                }
+
+                if(!empty($composer['require-dev'])) {
+                    $this->addPackages((array)$composer['require-dev'], $package->type);
+                }
             }
-
-            if(!empty($composer['require'])) {
-                $this->addPackages((array)$composer['require'], $package->type);
-            }
-
-            if(!empty($composer['require-dev'])) {
-                $this->addPackages((array)$composer['require-dev'], $package->type);
+            catch(Exception $e) {
+                $this->error($e->getMessage());
+                return;
             }
         }
-
-        if($this->error['download-url-missing'] !== 0) {
-            $this->error('Erorrs: Download Url (' . $this->error['download-url-missing'] . ')');
-        }
-        $this->info('Packaged added: (' . $this->count['package-add'] . ')');
     }
 
     /**
@@ -199,8 +193,6 @@ class BoratRequirementsCommand extends Command
         $data = json_decode($output);
 
         if(!empty($data->message)) {
-            // @todo check error logic
-
             if($data->message == 'Not Found') {
                 $this->errorNotFound($package);
                 return false;
@@ -215,6 +207,8 @@ class BoratRequirementsCommand extends Command
                 $this->errorRateLimit($package);
                 throw new Exception('Rate Limit reached.');
             }
+
+            var_dump($data->message);
         }
 
         if(empty($data->download_url)) {
@@ -232,7 +226,7 @@ class BoratRequirementsCommand extends Command
     {
         $this->error['package-insert-failed']++;
         $check = DB::table('borat_error')->where('package', '=', $name)->where('reason', '=', 'package-insert-failed');
-        if($check === 0) {
+        if($check->count() === 0) {
             $insert = [
                 'package' => $name,
                 'reason' => 'package-insert-failed'
@@ -257,17 +251,55 @@ class BoratRequirementsCommand extends Command
         }
     }
 
+    public function tryFallbackPackagist($name)
+    {
+        $url = 'https://packagist.org/search.json?q=' . $name;
+
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+        $output = curl_exec($ch);
+        curl_close($ch);
+
+        $data = (array)json_decode($output);
+
+        if(count($data['results']) > 0) {
+            foreach($data['results'] as $key => $package) {
+                if($package->name === $name) {
+                    $fullname = str_replace('https://github.com/', '', $package->repository);
+                    $tmp = explode('/', $fullname);
+
+                    $insert = [
+                        'repo' => 'git@github.com:' . $tmp[0] . '/' . $tmp[1] . '.git',
+                        'fullname' => $fullname,
+                        'vendor' => $tmp[0],
+                        'module' => $tmp[1],
+                        'type' => 'proxy'
+                    ];
+                    DB::table('packages')->insert($insert);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     public function errorNotFound(array $package)
     {
         $this->error['not-found']++;
         $check = DB::table('borat_error')->where('package', '=', $package['fullname'])
             ->where('reason', '=', 'not-found');
-        if($check === 0) {
-            $insert = [
-                'package' => $package['fullname'],
-                'reason' => 'not-found'
-            ];
-            DB::table('borat_error')->insert($insert);
+        if($check->count() === 0) {
+
+            $fallback = $this->tryFallbackPackagist($package['fullname']);
+
+            if(!$fallback) {
+                $insert = [
+                    'package' => $package['fullname'],
+                    'reason' => 'not-found'
+                ];
+                DB::table('borat_error')->insert($insert);
+            }
         }
     }
 
@@ -276,7 +308,7 @@ class BoratRequirementsCommand extends Command
         $this->error['moved-permanently']++;
         $check = DB::table('borat_error')->where('package', '=', $package['fullname'])
             ->where('reason', '=', 'moved-permanently');
-        if($check === 0) {
+        if($check->count() === 0) {
             $insert = [
                 'package' => $package['fullname'],
                 'reason' => 'moved-permanently'
@@ -290,7 +322,7 @@ class BoratRequirementsCommand extends Command
         $this->error['rate-limit']++;
         $check = DB::table('borat_error')->where('package', '=', $package['fullname'])
             ->where('reason', '=', 'rate-limit');
-        if($check === 0) {
+        if($check->count() === 0) {
             $insert = [
                 'package' => $package['fullname'],
                 'reason' => 'rate-limit'
