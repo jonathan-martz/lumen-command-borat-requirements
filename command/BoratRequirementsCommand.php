@@ -31,7 +31,10 @@ class BoratRequirementsCommand extends Command
      * @var array
      */
     private $error = [
-        'download-url-missing' => 0
+        'download-url-missing' => 0,
+        'not-found' => 0,
+        'package-insert-failed' => 0,
+        'moved-permanently' => 0
     ];
     /**
      * @var array
@@ -152,8 +155,8 @@ class BoratRequirementsCommand extends Command
         foreach($packages->get() as $key => $package) {
             $composer = (array)$this->getComposerJson((array)$package);
 
-            if(time() - $this->start > 30) {
-                throw new Exception('Timeout limit reached (30)');
+            if(time() - $this->start > 50) {
+                throw new Exception('Timeout limit reached (50)');
             }
 
             if(!empty($composer['require'])) {
@@ -195,8 +198,24 @@ class BoratRequirementsCommand extends Command
 
         $data = json_decode($output);
 
-        // @todo prevent moved permanently error
-        // @todo fix rate limit
+        if(!empty($data->message)) {
+            // @todo check error logic
+
+            if($data->message == 'Not Found') {
+                $this->errorNotFound($package);
+                return false;
+            }
+
+            if($data->message == 'Moved Permanently') {
+                $this->errorMovedPermanently($package);
+                return false;
+            }
+
+            if(strpos($data->message, 'API rate limit exceeded') === 0) {
+                $this->errorRateLimit($package);
+                throw new Exception('Rate Limit reached.');
+            }
+        }
 
         if(empty($data->download_url)) {
             $this->errorDownloadUrl($package);
@@ -213,7 +232,7 @@ class BoratRequirementsCommand extends Command
     {
         $this->error['package-insert-failed']++;
         $check = DB::table('borat_error')->where('package', '=', $name)->where('reason', '=', 'package-insert-failed');
-        if($check !== 0) {
+        if($check === 0) {
             $insert = [
                 'package' => $name,
                 'reason' => 'package-insert-failed'
@@ -229,10 +248,52 @@ class BoratRequirementsCommand extends Command
     {
         $this->error['download-url-missing']++;
         $check = DB::table('borat_error')->where('package', '=', $package['fullname'])->where('reason', '=', 'download-url-missing');
-        if($check !== 0) {
+        if($check === 0) {
             $insert = [
                 'package' => $package['fullname'],
                 'reason' => 'download-url-missing'
+            ];
+            DB::table('borat_error')->insert($insert);
+        }
+    }
+
+    public function errorNotFound(array $package)
+    {
+        $this->error['not-found']++;
+        $check = DB::table('borat_error')->where('package', '=', $package['fullname'])
+            ->where('reason', '=', 'not-found');
+        if($check === 0) {
+            $insert = [
+                'package' => $package['fullname'],
+                'reason' => 'not-found'
+            ];
+            DB::table('borat_error')->insert($insert);
+        }
+    }
+
+    public function errorMovedPermanently(array $package)
+    {
+        $this->error['moved-permanently']++;
+        $check = DB::table('borat_error')->where('package', '=', $package['fullname'])
+            ->where('reason', '=', 'moved-permanently');
+        if($check === 0) {
+            $insert = [
+                'package' => $package['fullname'],
+                'reason' => 'moved-permanently'
+            ];
+            DB::table('borat_error')->insert($insert);
+        }
+    }
+
+    public function errorRateLimit(array $package)
+    {
+        $this->error['rate-limit']++;
+        $check = DB::table('borat_error')->where('package', '=', $package['fullname'])
+            ->where('reason', '=', 'rate-limit');
+        if($check === 0) {
+            $insert = [
+                'package' => $package['fullname'],
+                'reason' => 'rate-limit'
             ];
             DB::table('borat_error')->insert($insert);
         }
