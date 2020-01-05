@@ -27,16 +27,6 @@ class BoratRequirementsCommand extends Command
      * @var string
      */
     protected $description = 'Add requirements to database';
-    /**
-     * @var array
-     */
-    private $error = [
-        'download-url-missing' => 0,
-        'not-found' => 0,
-        'package-insert-failed' => 0,
-        'moved-permanently' => 0,
-        'rate-limit' => 0
-    ];
 
     /**
      * @var int
@@ -207,8 +197,6 @@ class BoratRequirementsCommand extends Command
                 $this->errorRateLimit($package);
                 throw new Exception('Rate Limit reached.');
             }
-
-            var_dump($data->message);
         }
 
         if(empty($data->download_url)) {
@@ -224,7 +212,6 @@ class BoratRequirementsCommand extends Command
      */
     public function errorPackageInsertFailed(string $name)
     {
-        $this->error['package-insert-failed']++;
         $check = DB::table('borat_error')->where('package', '=', $name)->where('reason', '=', 'package-insert-failed');
         if($check->count() === 0) {
             $insert = [
@@ -240,7 +227,6 @@ class BoratRequirementsCommand extends Command
      */
     public function errorDownloadUrl(array $package)
     {
-        $this->error['download-url-missing']++;
         $check = DB::table('borat_error')->where('package', '=', $package['fullname'])->where('reason', '=', 'download-url-missing');
         if($check === 0) {
             $insert = [
@@ -251,6 +237,10 @@ class BoratRequirementsCommand extends Command
         }
     }
 
+    /**
+     * @param $name
+     * @return bool
+     */
     public function tryFallbackPackagist($name)
     {
         $url = 'https://packagist.org/search.json?q=' . $name;
@@ -284,9 +274,11 @@ class BoratRequirementsCommand extends Command
         return false;
     }
 
+    /**
+     * @param array $package
+     */
     public function errorNotFound(array $package)
     {
-        $this->error['not-found']++;
         $check = DB::table('borat_error')->where('package', '=', $package['fullname'])
             ->where('reason', '=', 'not-found');
         if($check->count() === 0) {
@@ -303,9 +295,11 @@ class BoratRequirementsCommand extends Command
         }
     }
 
+    /**
+     * @param array $package
+     */
     public function errorMovedPermanently(array $package)
     {
-        $this->error['moved-permanently']++;
         $check = DB::table('borat_error')->where('package', '=', $package['fullname'])
             ->where('reason', '=', 'moved-permanently');
         if($check->count() === 0) {
@@ -317,9 +311,11 @@ class BoratRequirementsCommand extends Command
         }
     }
 
+    /**
+     * @param array $package
+     */
     public function errorRateLimit(array $package)
     {
-        $this->error['rate-limit']++;
         $check = DB::table('borat_error')->where('package', '=', $package['fullname'])
             ->where('reason', '=', 'rate-limit');
         if($check->count() === 0) {
